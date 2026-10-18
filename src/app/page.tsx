@@ -23,16 +23,20 @@ import {
   AlertTriangle,
   RotateCcw,
   CheckCircle2,
+  Database,
 } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 
 export default function PrototypeDisplayPage() {
-  const [hub] = useState(MASTER_IOT_HUB);
+  const [hub, setHub] = useState(MASTER_IOT_HUB);
   const [boxes, setBoxes] = useState<Record<string, HiveBox>>(INITIAL_BOXES);
   const [activeBoxId, setActiveBoxId] = useState<string>("BOX_01");
   const [isRunning, setIsRunning] = useState<boolean>(true);
   const [lastUpdated, setLastUpdated] = useState<number>(0);
   const [pendingAnomaly, setPendingAnomaly] = useState<string | null>(null);
   const [activeAlert, setActiveAlert] = useState<HiveAlert | null>(null);
+  const [dataSource, setDataSource] = useState<"supabase" | "simulator">("supabase");
+  const [isSupabaseConnected, setIsSupabaseConnected] = useState<boolean>(false);
 
   // Audio mic streaming state
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -81,9 +85,144 @@ export default function PrototypeDisplayPage() {
     return () => clearInterval(timer);
   }, []);
 
-  // 4-second Simulation loop
+  // Supabase Cloud Realtime synchronization hook
   useEffect(() => {
-    if (!isRunning) return;
+    const client = supabase;
+    if (!client) return;
+
+    // 1. Initial Fetch of Live State from Supabase Cloud
+    const fetchLiveState = async () => {
+      try {
+        const { data: hubData } = await client
+          .from("iot_hubs")
+          .select("*")
+          .eq("hub_id", "IOT_BOX_01")
+          .single();
+
+        if (hubData) {
+          setHub({
+            hub_id: hubData.hub_id,
+            hub_name: hubData.name,
+            location: hubData.location,
+            battery_cell_pct: Number(hubData.battery_cell_pct),
+            battery_voltage: Number(hubData.battery_voltage),
+            battery_status: hubData.battery_status,
+          });
+        }
+
+        const { data: boxesData } = await client.from("hive_boxes").select("*");
+        if (boxesData && boxesData.length > 0) {
+          setBoxes((prev) => {
+            const next = { ...prev };
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            boxesData.forEach((row: any) => {
+              if (next[row.box_id]) {
+                next[row.box_id] = {
+                  ...next[row.box_id],
+                  temperature_c: Number(row.temperature_c),
+                  humidity_percent: Number(row.humidity_percent),
+                  brood_load_corner1_kg: Number(row.brood_load_corner1_kg),
+                  brood_load_corner2_kg: Number(row.brood_load_corner2_kg),
+                  brood_total_kg: Number(row.brood_total_kg),
+                  honey_load_corner1_kg: Number(row.honey_load_corner1_kg),
+                  honey_load_corner2_kg: Number(row.honey_load_corner2_kg),
+                  honey_total_kg: Number(row.honey_total_kg),
+                  total_hive_weight_kg: Number(row.total_hive_weight_kg),
+                  gyro: {
+                    pitch_x: Number(row.pitch_x || 0),
+                    roll_y: Number(row.roll_y || 0),
+                    yaw_z: Number(row.yaw_z || 0),
+                    tilt_deg: Number(row.tilt_deg || 0),
+                    status: (row.gyro_status as "Level & Stable" | "Tilted / Disturbed") || "Level & Stable",
+                  },
+                  sound_db: Number(row.sound_db),
+                  status: (row.status as "HEALTHY" | "WARNING" | "CRITICAL") || "HEALTHY",
+                };
+              }
+            });
+            return next;
+          });
+          setIsSupabaseConnected(true);
+        }
+      } catch (e) {
+        console.warn("Supabase fetch fallback:", e);
+      }
+    };
+
+    fetchLiveState();
+
+    // 2. Realtime Subscription on PostgreSQL Changes
+    const channel = client
+      .channel("hive-realtime-stream")
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "hive_boxes" },
+        (payload) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const row = payload.new as any;
+          setBoxes((prev) => {
+            if (!prev[row.box_id]) return prev;
+            return {
+              ...prev,
+              [row.box_id]: {
+                ...prev[row.box_id],
+                temperature_c: Number(row.temperature_c),
+                humidity_percent: Number(row.humidity_percent),
+                brood_load_corner1_kg: Number(row.brood_load_corner1_kg),
+                brood_load_corner2_kg: Number(row.brood_load_corner2_kg),
+                brood_total_kg: Number(row.brood_total_kg),
+                honey_load_corner1_kg: Number(row.honey_load_corner1_kg),
+                honey_load_corner2_kg: Number(row.honey_load_corner2_kg),
+                honey_total_kg: Number(row.honey_total_kg),
+                total_hive_weight_kg: Number(row.total_hive_weight_kg),
+                gyro: {
+                  pitch_x: Number(row.pitch_x || 0),
+                  roll_y: Number(row.roll_y || 0),
+                  yaw_z: Number(row.yaw_z || 0),
+                  tilt_deg: Number(row.tilt_deg || 0),
+                  status: (row.gyro_status as "Level & Stable" | "Tilted / Disturbed") || "Level & Stable",
+                },
+                sound_db: Number(row.sound_db),
+                status: (row.status as "HEALTHY" | "WARNING" | "CRITICAL") || "HEALTHY",
+              },
+            };
+          });
+          setLastUpdated(0);
+          setIsSupabaseConnected(true);
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "iot_hubs" },
+        (payload) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const row = payload.new as any;
+          setHub({
+            hub_id: row.hub_id,
+            hub_name: row.name,
+            location: row.location,
+            battery_cell_pct: Number(row.battery_cell_pct),
+            battery_voltage: Number(row.battery_voltage),
+            battery_status: row.battery_status,
+          });
+          setLastUpdated(0);
+          setIsSupabaseConnected(true);
+        }
+      )
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          setIsSupabaseConnected(true);
+        }
+      });
+
+    return () => {
+      client.removeChannel(channel);
+    };
+  }, []);
+
+  // 4-second Simulation loop (active when in simulator mode or anomaly is injected)
+  useEffect(() => {
+    if (!isRunning || (dataSource === "supabase" && isSupabaseConnected && !pendingAnomaly)) return;
 
     const interval = setInterval(() => {
       setBoxes((prev) => {
@@ -100,7 +239,7 @@ export default function PrototypeDisplayPage() {
     }, 4000);
 
     return () => clearInterval(interval);
-  }, [isRunning, activeBoxId, pendingAnomaly]);
+  }, [isRunning, activeBoxId, pendingAnomaly, dataSource, isSupabaseConnected]);
 
   const boxKeys = ["BOX_01", "BOX_02", "BOX_03"];
 
@@ -123,9 +262,17 @@ export default function PrototypeDisplayPage() {
                 <span className="font-extrabold text-base sm:text-lg text-slate-900 tracking-tight">
                   MadhuRaksha
                 </span>
-                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
-                  Prototype Display
-                </span>
+                {isSupabaseConnected ? (
+                  <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1.5 shadow-2xs">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-ping inline-block" />
+                    Supabase Live
+                  </span>
+                ) : (
+                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200 flex items-center gap-1">
+                    <Database className="w-3 h-3 text-amber-600" />
+                    Connecting Cloud...
+                  </span>
+                )}
               </div>
               
               {/* Filter Tab: One Location -> Master IoT Box */}
@@ -615,6 +762,20 @@ export default function PrototypeDisplayPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {/* Stream Mode Toggle */}
+            <button
+              onClick={() => setDataSource(dataSource === "supabase" ? "simulator" : "supabase")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold border flex items-center gap-1.5 transition-colors ${
+                dataSource === "supabase"
+                  ? "bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100"
+                  : "bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100"
+              }`}
+              title="Toggle between live Supabase cloud stream and demo simulation"
+            >
+              <Database className="w-3.5 h-3.5" />
+              <span>{dataSource === "supabase" ? "Source: Supabase Cloud" : "Source: Local Sim"}</span>
+            </button>
+
             {/* Play/Pause */}
             <button
               onClick={() => setIsRunning(!isRunning)}
