@@ -18,7 +18,7 @@ export const DigitalTwin: React.FC<DigitalTwinProps> = ({ box }) => {
 
   const getStatusPill = () => {
     if (box.temperature_c > 36.0) return { label: "CRITICAL: OVERHEATING", color: "bg-rose-500 text-white" };
-    if (box.tilt_deg > 10.0) return { label: "CRITICAL: TILT BREACH", color: "bg-rose-500 text-white" };
+    if ((box.tilt_deg ?? box.gyro?.tilt_deg ?? 0) > 10.0) return { label: "CRITICAL: TILT BREACH", color: "bg-rose-500 text-white" };
     if (box.temperature_c < 30.0) return { label: "WARNING: CHILLING", color: "bg-sky-500 text-white" };
     return { label: "HEALTHY COLONY", color: "bg-emerald-600 text-white" };
   };
@@ -73,7 +73,7 @@ export const DigitalTwin: React.FC<DigitalTwinProps> = ({ box }) => {
 
         <div className="text-right">
           <span className="text-xs font-mono font-bold text-slate-700">
-            {box.sound_db} dB &bull; {box.bee_count_per_min} bees/min
+            {box.sound_db} dB &bull; {box.bee_count_per_min ?? 0} bees/min
           </span>
         </div>
       </div>
@@ -89,7 +89,7 @@ export const DigitalTwin: React.FC<DigitalTwinProps> = ({ box }) => {
 
         {/* Honey Super */}
         <div className="w-52 h-14 bg-amber-100 border-x-2 border-b-2 border-amber-300 flex items-center justify-center text-xs font-bold text-amber-900 shadow-inner">
-          <span>HONEY SUPER ({box.weight_kg.toFixed(1)} kg)</span>
+          <span>HONEY SUPER ({(box.weight_kg ?? box.total_hive_weight_kg ?? 0).toFixed(1)} kg)</span>
         </div>
 
         {/* Brood Nest Chamber (Thermal Monitored) */}
@@ -116,15 +116,15 @@ export const DigitalTwin: React.FC<DigitalTwinProps> = ({ box }) => {
       <div className="relative z-10 pt-4 border-t border-slate-100 grid grid-cols-3 gap-2 text-center text-xs">
         <div>
           <span className="text-slate-600 block text-[11px]">CO₂ Level</span>
-          <span className="font-bold text-slate-800 font-mono">{box.co2_ppm} ppm</span>
+          <span className="font-bold text-slate-800 font-mono">{box.co2_ppm ?? 0} ppm</span>
         </div>
         <div>
           <span className="text-slate-600 block text-[11px]">Ambient Light</span>
-          <span className="font-bold text-slate-800 font-mono">{box.light_lux.toLocaleString()} lx</span>
+          <span className="font-bold text-slate-800 font-mono">{(box.light_lux ?? 0).toLocaleString()} lx</span>
         </div>
         <div>
           <span className="text-slate-600 block text-[11px]">Colony Flight</span>
-          <span className="font-bold text-slate-800 font-mono">{box.bee_count_per_min}/min</span>
+          <span className="font-bold text-slate-800 font-mono">{box.bee_count_per_min ?? 0}/min</span>
         </div>
       </div>
     </div>

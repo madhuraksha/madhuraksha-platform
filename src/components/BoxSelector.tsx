@@ -84,7 +84,7 @@ export const BoxSelector: React.FC<BoxSelectorProps> = ({
                     {box.temperature_c.toFixed(1)}°C
                   </span>
                   <div className="text-[11px] text-slate-600 font-mono">
-                    {box.weight_kg.toFixed(1)} kg
+                    {(box.weight_kg ?? box.total_hive_weight_kg ?? 0).toFixed(1)} kg
                   </div>
                 </div>
               </div>

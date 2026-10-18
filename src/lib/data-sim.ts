@@ -1,28 +1,36 @@
-import { HiveBox, MasterHub, HiveAlert, HistoricalDataPoint } from "@/types/hive";
+import { HiveBox, MasterHub, HiveAlert } from "@/types/hive";
 
 export const MASTER_IOT_HUB: MasterHub = {
-  hub_id: "IOT_HUB_01",
-  hub_name: "MadhuRaksha Master IoT Hub #1 (Apiary Mandya)",
-  firmware: "MicroPython v1.23-ESP32-TriChannel",
-  battery_pct: 94,
-  solar_active: true,
-  gsm_rssi_dbm: -74,
-  sd_status: "UNAVAILABLE (Pending Firmware)"
+  hub_id: "IOT_BOX_01",
+  hub_name: "Master IoT Box #1",
+  location: "Apiary Location #1 (Mandya, Karnataka)",
+  battery_cell_pct: 94,
+  battery_voltage: 4.02,
+  battery_status: "Healthy · Li-Ion Solar Charged"
 };
 
-// 3 identical standard beehive boxes (~1m apart), all connected to the single Master IoT Box
+// 3 Honeybee boxes connected to this single Master IoT Box in Location #1
 export const INITIAL_BOXES: Record<string, HiveBox> = {
   "BOX_01": {
     box_id: "BOX_01",
     box_name: "Hive Box 1",
     temperature_c: 34.8,
     humidity_percent: 61.2,
-    co2_ppm: 2680,
-    weight_kg: 27.4,
+    brood_load_corner1_kg: 13.80,
+    brood_load_corner2_kg: 13.60,
+    brood_total_kg: 27.40,
+    honey_load_corner1_kg: 16.20,
+    honey_load_corner2_kg: 16.30,
+    honey_total_kg: 32.50,
+    total_hive_weight_kg: 59.90,
+    gyro: {
+      pitch_x: 0.3,
+      roll_y: -0.4,
+      yaw_z: 0.1,
+      tilt_deg: 0.5,
+      status: "Level & Stable"
+    },
     sound_db: 63,
-    light_lux: 12400,
-    bee_count_per_min: 172,
-    tilt_deg: 0.7,
     status: "HEALTHY"
   },
   "BOX_02": {
@@ -30,12 +38,21 @@ export const INITIAL_BOXES: Record<string, HiveBox> = {
     box_name: "Hive Box 2",
     temperature_c: 33.6,
     humidity_percent: 58.0,
-    co2_ppm: 2420,
-    weight_kg: 32.5,
+    brood_load_corner1_kg: 12.90,
+    brood_load_corner2_kg: 13.10,
+    brood_total_kg: 26.00,
+    honey_load_corner1_kg: 14.50,
+    honey_load_corner2_kg: 14.30,
+    honey_total_kg: 28.80,
+    total_hive_weight_kg: 54.80,
+    gyro: {
+      pitch_x: -0.2,
+      roll_y: 0.3,
+      yaw_z: 0.0,
+      tilt_deg: 0.4,
+      status: "Level & Stable"
+    },
     sound_db: 59,
-    light_lux: 11800,
-    bee_count_per_min: 210,
-    tilt_deg: 0.4,
     status: "HEALTHY"
   },
   "BOX_03": {
@@ -43,91 +60,24 @@ export const INITIAL_BOXES: Record<string, HiveBox> = {
     box_name: "Hive Box 3",
     temperature_c: 35.2,
     humidity_percent: 64.5,
-    co2_ppm: 2850,
-    weight_kg: 21.8,
+    brood_load_corner1_kg: 11.20,
+    brood_load_corner2_kg: 11.40,
+    brood_total_kg: 22.60,
+    honey_load_corner1_kg: 12.10,
+    honey_load_corner2_kg: 12.30,
+    honey_total_kg: 24.40,
+    total_hive_weight_kg: 47.00,
+    gyro: {
+      pitch_x: 0.5,
+      roll_y: 0.6,
+      yaw_z: 0.2,
+      tilt_deg: 0.8,
+      status: "Level & Stable"
+    },
     sound_db: 67,
-    light_lux: 13100,
-    bee_count_per_min: 145,
-    tilt_deg: 1.1,
     status: "HEALTHY"
   }
 };
-
-export const THRESHOLDS = {
-  tempHigh: 36.0,       // Overheating risk (>36°C)
-  tempCritHigh: 45.0,   // Critical heat spurt (>45°C)
-  tempLow: 30.0,        // Brood chilling risk (<30°C)
-  humHigh: 70.0,        // Mold risk (>70%)
-  humLow: 50.0,         // Desiccation risk (<50%)
-  co2High: 3000,        // Overcrowding / poor ventilation (>3000 ppm)
-  soundDelta: 10,       // Sudden ±10 dB change (queen loss / swarming)
-  tiltCritical: 10.0,    // MPU6050 physical tilt / hive knocked over (>10°)
-  batteryLow: 30        // Low battery warning (<30%)
-};
-
-export const INITIAL_ALERTS: HiveAlert[] = [
-  {
-    id: "ALT-301",
-    hub_id: "IOT_HUB_01",
-    box_id: "BOX_01",
-    time: "Today, 11:20 AM",
-    sensor: "Temperature",
-    reading: "37.2 °C",
-    threshold: "> 36.0 °C",
-    severity: "CRITICAL",
-    action: "SMS Sent to SIM800L (+1234567890)",
-    status: "Resolved"
-  },
-  {
-    id: "ALT-302",
-    hub_id: "IOT_HUB_01",
-    box_id: "BOX_03",
-    time: "Today, 09:15 AM",
-    sensor: "CO₂ Level",
-    reading: "3120 ppm",
-    threshold: "> 3000 ppm",
-    severity: "WARNING",
-    action: "Logged / Ventilation Checked",
-    status: "Normal"
-  },
-  {
-    id: "ALT-303",
-    hub_id: "IOT_HUB_01",
-    box_id: "BOX_02",
-    time: "Yesterday, 03:45 PM",
-    sensor: "Hive Tilt (MPU6050)",
-    reading: "14.8 °",
-    threshold: "> 10.0 °",
-    severity: "CRITICAL",
-    action: "SMS Sent to SIM800L",
-    status: "Inspected"
-  }
-];
-
-export function generateHistoricalDataset(box: HiveBox, hours = 24, pointsCount = 20): HistoricalDataPoint[] {
-  const result: HistoricalDataPoint[] = [];
-  const now = Date.now();
-  const intervalMs = (hours * 3600 * 1000) / pointsCount;
-
-  for (let i = pointsCount - 1; i >= 0; i--) {
-    const pointTime = new Date(now - i * intervalMs);
-    const timeLabel = pointTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const hour = pointTime.getHours();
-    const diurnal = Math.sin(((hour - 6) / 24) * 2 * Math.PI);
-
-    result.push({
-      time: timeLabel,
-      temperature: +(box.temperature_c + diurnal * 0.8 + (Math.random() * 0.4 - 0.2)).toFixed(1),
-      humidity: +(box.humidity_percent - diurnal * 3.0 + (Math.random() * 1.2 - 0.6)).toFixed(1),
-      weight: +(box.weight_kg + i * 0.02 + (Math.random() * 0.06 - 0.03)).toFixed(2),
-      sound: +(box.sound_db + diurnal * 2.5 + (Math.random() * 2 - 1)).toFixed(0),
-      tilt: +(box.tilt_deg + (Math.random() * 0.1 - 0.05)).toFixed(1),
-      co2: +(box.co2_ppm + diurnal * 160 + (Math.random() * 40 - 20)).toFixed(0)
-    });
-  }
-
-  return result;
-}
 
 export function simulateTick(
   boxes: Record<string, HiveBox>,
@@ -144,81 +94,73 @@ export function simulateTick(
 
     if (boxId === activeBoxId && anomalyType) {
       if (anomalyType === "overheat") {
-        box.temperature_c = +(37.6 + Math.random() * 0.4).toFixed(1);
+        box.temperature_c = +(37.5 + Math.random() * 0.5).toFixed(1);
         box.humidity_percent = +(48.0 + Math.random() * 1.0).toFixed(1);
         box.status = "CRITICAL";
         newAlert = {
           id: `ALT-${Date.now().toString().slice(-4)}`,
-          hub_id: MASTER_IOT_HUB.hub_id,
           box_id: box.box_id,
           time: timeFormatted,
-          sensor: "Temperature",
-          reading: `${box.temperature_c} °C`,
-          threshold: "> 36.0 °C",
-          severity: "CRITICAL",
-          action: "SMS Sent to SIM800L (+1234567890)",
-          status: "Overheating Risk"
-        };
-      } else if (anomalyType === "co2_spike") {
-        box.co2_ppm = +(3320 + Math.random() * 60).toFixed(0);
-        box.status = "WARNING";
-        newAlert = {
-          id: `ALT-${Date.now().toString().slice(-4)}`,
-          hub_id: MASTER_IOT_HUB.hub_id,
-          box_id: box.box_id,
-          time: timeFormatted,
-          sensor: "CO₂ Concentration",
-          reading: `${box.co2_ppm} ppm`,
-          threshold: "> 3000 ppm",
-          severity: "WARNING",
-          action: "Logged / Ventilation Warning",
-          status: "Poor Ventilation"
+          sensor: "Temperature / Humidity Sensor",
+          reading: `${box.temperature_c}°C / ${box.humidity_percent}%`,
+          severity: "CRITICAL"
         };
       } else if (anomalyType === "tilt") {
-        box.tilt_deg = +(16.8 + Math.random() * 1.5).toFixed(1);
-        box.sound_db = 77;
+        box.gyro.pitch_x = 12.4;
+        box.gyro.roll_y = 11.8;
+        box.gyro.tilt_deg = 17.1;
+        box.gyro.status = "Tilted / Disturbed";
         box.status = "CRITICAL";
         newAlert = {
           id: `ALT-${Date.now().toString().slice(-4)}`,
-          hub_id: MASTER_IOT_HUB.hub_id,
           box_id: box.box_id,
           time: timeFormatted,
-          sensor: "Hive Tilt (MPU6050)",
-          reading: `${box.tilt_deg} °`,
-          threshold: "> 10.0 °",
-          severity: "CRITICAL",
-          action: "SMS Sent to SIM800L",
-          status: "Hive Knocked Over"
+          sensor: "MPU6050 Gyroscope",
+          reading: `17.1° Tilt (Displaced)`,
+          severity: "CRITICAL"
         };
       } else if (anomalyType === "sound") {
         box.sound_db = +(82 + Math.random() * 3).toFixed(0);
-        box.bee_count_per_min = 340;
         box.status = "WARNING";
         newAlert = {
           id: `ALT-${Date.now().toString().slice(-4)}`,
-          hub_id: MASTER_IOT_HUB.hub_id,
           box_id: box.box_id,
           time: timeFormatted,
-          sensor: "Acoustic Colony Sound",
-          reading: `${box.sound_db} dB`,
-          threshold: "+19 dB spike",
-          severity: "WARNING",
-          action: "SMS Sent to SIM800L",
-          status: "Swarm Agitation"
+          sensor: "Microphone (Sound)",
+          reading: `${box.sound_db} dB (High Frequency Buzz)`,
+          severity: "WARNING"
         };
       }
     } else {
-      // Normal living hive micro-drift
-      const tempDrift = (Math.random() * 0.16) - 0.08;
-      const humDrift = (Math.random() * 0.4) - 0.2;
-      const weightDrift = (Math.random() * 0.02) - 0.01;
-      const soundDrift = (Math.random() * 1.4) - 0.7;
+      // Natural living hive micro-drift
+      const tempDrift = (Math.random() * 0.14) - 0.07;
+      const humDrift = (Math.random() * 0.3) - 0.15;
+      const loadDrift1 = (Math.random() * 0.02) - 0.01;
+      const loadDrift2 = (Math.random() * 0.02) - 0.01;
+      const honeyDrift1 = (Math.random() * 0.03) - 0.015;
+      const honeyDrift2 = (Math.random() * 0.03) - 0.015;
+      const soundDrift = (Math.random() * 1.6) - 0.8;
 
-      box.temperature_c = +(Math.max(31.0, Math.min(35.5, box.temperature_c + tempDrift))).toFixed(1);
+      box.temperature_c = +(Math.max(31.0, Math.min(35.8, box.temperature_c + tempDrift))).toFixed(1);
       box.humidity_percent = +(Math.max(52.0, Math.min(68.0, box.humidity_percent + humDrift))).toFixed(1);
-      box.weight_kg = +(box.weight_kg + weightDrift).toFixed(2);
+
+      box.brood_load_corner1_kg = +(Math.max(8.0, box.brood_load_corner1_kg + loadDrift1)).toFixed(2);
+      box.brood_load_corner2_kg = +(Math.max(8.0, box.brood_load_corner2_kg + loadDrift2)).toFixed(2);
+      box.brood_total_kg = +(box.brood_load_corner1_kg + box.brood_load_corner2_kg).toFixed(2);
+
+      box.honey_load_corner1_kg = +(Math.max(10.0, box.honey_load_corner1_kg + honeyDrift1)).toFixed(2);
+      box.honey_load_corner2_kg = +(Math.max(10.0, box.honey_load_corner2_kg + honeyDrift2)).toFixed(2);
+      box.honey_total_kg = +(box.honey_load_corner1_kg + box.honey_load_corner2_kg).toFixed(2);
+
+      box.total_hive_weight_kg = +(box.brood_total_kg + box.honey_total_kg).toFixed(2);
+
+      box.gyro.pitch_x = +(box.gyro.pitch_x + (Math.random() * 0.04 - 0.02)).toFixed(1);
+      box.gyro.roll_y = +(box.gyro.roll_y + (Math.random() * 0.04 - 0.02)).toFixed(1);
+      box.gyro.tilt_deg = +(Math.sqrt(box.gyro.pitch_x ** 2 + box.gyro.roll_y ** 2)).toFixed(1);
+      box.gyro.status = box.gyro.tilt_deg > 10.0 ? "Tilted / Disturbed" : "Level & Stable";
+
       box.sound_db = +(Math.max(54, Math.min(70, box.sound_db + soundDrift))).toFixed(0);
-      box.status = "HEALTHY";
+      box.status = box.gyro.tilt_deg > 10.0 || box.temperature_c > 36.0 ? "CRITICAL" : "HEALTHY";
     }
 
     box.timestamp = timeFormatted;

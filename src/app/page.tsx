@@ -1,70 +1,82 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  MASTER_IOT_HUB,
-  INITIAL_BOXES,
-  INITIAL_ALERTS,
-  simulateTick,
-  generateHistoricalDataset,
-} from "@/lib/data-sim";
-import { HiveBox, HiveAlert, HistoricalDataPoint } from "@/types/hive";
-import { Navbar } from "@/components/Navbar";
-import { BoxSelector } from "@/components/BoxSelector";
-import { SensorCard } from "@/components/SensorCard";
-import { AudioStreamer } from "@/components/AudioStreamer";
-import { DigitalTwin } from "@/components/DigitalTwin";
-import { AnalyticsCharts } from "@/components/AnalyticsCharts";
-import { AlertsTable } from "@/components/AlertsTable";
-import { FleetMap } from "@/components/FleetMap";
-import { HarvestTracker } from "@/components/HarvestTracker";
-import { FieldTasks } from "@/components/FieldTasks";
-import { ProjectOverview } from "@/components/ProjectOverview";
-import { ControlsPanel } from "@/components/ControlsPanel";
+import { MASTER_IOT_HUB, INITIAL_BOXES, simulateTick } from "@/lib/data-sim";
+import { HiveBox, HiveAlert } from "@/types/hive";
+import { HiveAudioStreamer } from "@/lib/audio";
 import {
   Thermometer,
   Droplets,
   Scale,
-  Volume2,
   Compass,
-  HardDrive,
-  AlertCircle,
-  X,
+  Mic,
+  BatteryCharging,
+  MapPin,
+  Cpu,
+  Layers,
+  Volume2,
+  VolumeX,
+  Play,
+  Pause,
+  Flame,
+  AlertTriangle,
+  RotateCcw,
+  CheckCircle2,
 } from "lucide-react";
 
-export default function DashboardPage() {
+export default function PrototypeDisplayPage() {
   const [hub] = useState(MASTER_IOT_HUB);
   const [boxes, setBoxes] = useState<Record<string, HiveBox>>(INITIAL_BOXES);
   const [activeBoxId, setActiveBoxId] = useState<string>("BOX_01");
-  const [activeTab, setActiveTab] = useState<string>("command");
-  const [alerts, setAlerts] = useState<HiveAlert[]>(INITIAL_ALERTS);
   const [isRunning, setIsRunning] = useState<boolean>(true);
-  const [lastUpdatedSeconds, setLastUpdatedSeconds] = useState<number>(0);
+  const [lastUpdated, setLastUpdated] = useState<number>(0);
   const [pendingAnomaly, setPendingAnomaly] = useState<string | null>(null);
-  const [toast, setToast] = useState<{ message: string; type: "info" | "warning" | "critical" } | null>(null);
+  const [activeAlert, setActiveAlert] = useState<HiveAlert | null>(null);
+
+  // Audio mic streaming state
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const audioStreamerRef = useRef<HiveAudioStreamer | null>(null);
+  const [isAudioPlaying, setIsAudioPlaying] = useState<boolean>(false);
+  const [audioVolume, setAudioVolume] = useState<number>(0.5);
+  const [audioFreq, setAudioFreq] = useState<number>(220);
 
   const activeBox = boxes[activeBoxId] || boxes["BOX_01"];
 
-  // Historical chart data for the active box
-  const [historicalData, setHistoricalData] = useState<HistoricalDataPoint[]>([]);
-
+  // Initialize Audio
   useEffect(() => {
-    setHistoricalData(generateHistoricalDataset(activeBox, 24, 20));
-  }, [activeBoxId, activeBox]);
+    audioStreamerRef.current = new HiveAudioStreamer();
+    return () => {
+      audioStreamerRef.current?.stopBuzz();
+    };
+  }, []);
 
-  // Show Toast Helper
-  const showToast = (message: string, type: "info" | "warning" | "critical" = "info") => {
-    setToast({ message, type });
-    setTimeout(() => {
-      setToast(null);
-    }, 4000);
+  // Update audio frequency if actively playing
+  useEffect(() => {
+    if (audioStreamerRef.current?.isPlaying) {
+      audioStreamerRef.current.updateLiveSound(activeBox.sound_db);
+      const freq = Math.round(audioStreamerRef.current.calculateFrequencyFromDb(activeBox.sound_db));
+      setAudioFreq(freq);
+    }
+  }, [activeBox.sound_db]);
+
+  const toggleAudio = () => {
+    if (!audioStreamerRef.current) return;
+
+    if (isAudioPlaying) {
+      audioStreamerRef.current.stopBuzz();
+      setIsAudioPlaying(false);
+    } else {
+      const freq = audioStreamerRef.current.startBuzz(activeBox.sound_db, canvasRef.current);
+      setAudioFreq(Math.round(freq));
+      setIsAudioPlaying(true);
+    }
   };
 
-  // 1-second elapsed time ticker
+  // 1-second ticker for elapsed time
   useEffect(() => {
     const timer = setInterval(() => {
-      setLastUpdatedSeconds((prev) => prev + 1);
+      setLastUpdated((prev) => prev + 1);
     }, 1000);
     return () => clearInterval(timer);
   }, []);
@@ -74,353 +86,595 @@ export default function DashboardPage() {
     if (!isRunning) return;
 
     const interval = setInterval(() => {
-      setBoxes((prevBoxes) => {
-        const { updatedBoxes, newAlert } = simulateTick(prevBoxes, activeBoxId, pendingAnomaly);
-
+      setBoxes((prev) => {
+        const { updatedBoxes, newAlert } = simulateTick(prev, activeBoxId, pendingAnomaly);
         if (newAlert) {
-          setAlerts((prevAlerts) => [newAlert, ...prevAlerts.slice(0, 19)]);
-          showToast(`🚨 ${newAlert.sensor}: ${newAlert.reading} (${newAlert.status})`, newAlert.severity.toLowerCase() as "critical" | "warning");
+          setActiveAlert(newAlert);
         }
-
         if (pendingAnomaly) {
           setPendingAnomaly(null);
         }
-
         return updatedBoxes;
       });
-
-      setLastUpdatedSeconds(0);
+      setLastUpdated(0);
     }, 4000);
 
     return () => clearInterval(interval);
   }, [isRunning, activeBoxId, pendingAnomaly]);
 
-  // Handler for range toggle in charts
-  const handleRangeChange = (hours: number) => {
-    const count = hours === 1 ? 12 : hours === 6 ? 18 : 24;
-    setHistoricalData(generateHistoricalDataset(activeBox, hours, count));
-    showToast(`Showing past ${hours}h analytics for ${activeBox.box_name}`, "info");
-  };
-
-  // CSV Telemetry Export
-  const handleExportCSV = () => {
-    const headers = [
-      "Timestamp",
-      "Hub_ID",
-      "Box_ID",
-      "Box_Name",
-      "Temperature_C",
-      "Humidity_Pct",
-      "Weight_Kg",
-      "Sound_dB",
-      "Tilt_Deg",
-      "CO2_ppm",
-    ];
-    const rows = Object.values(boxes).map((b) => [
-      new Date().toISOString(),
-      hub.hub_id,
-      b.box_id,
-      b.box_name,
-      b.temperature_c,
-      b.humidity_percent,
-      b.weight_kg,
-      b.sound_db,
-      b.tilt_deg,
-      b.co2_ppm,
-    ]);
-
-    const csvContent =
-      "data:text/csv;charset=utf-8," +
-      [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `MadhuRaksha_Hub01_3Boxes_Telemetry.csv`);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    showToast("Exported multi-box telemetry log to CSV", "info");
-  };
-
-  // Trigger test anomaly
-  const handleTriggerAnomaly = (type: string) => {
-    setPendingAnomaly(type);
-    showToast(`Injected test event into ${activeBox.box_name}...`, "warning");
-  };
+  const boxKeys = ["BOX_01", "BOX_02", "BOX_03"];
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 antialiased font-sans">
-      {/* Toast Notification Container */}
-      <AnimatePresence>
-        {toast && (
-          <motion.div
-            initial={{ opacity: 0, y: 20, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 15, scale: 0.95 }}
-            className={`fixed bottom-6 right-6 z-50 max-w-sm p-4 rounded-xl shadow-lg border text-xs font-semibold flex items-center justify-between gap-3 ${
-              toast.type === "critical"
-                ? "bg-rose-50 border-rose-300 text-rose-900 shadow-rose-500/10"
-                : toast.type === "warning"
-                ? "bg-amber-50 border-amber-300 text-amber-900 shadow-amber-500/10"
-                : "bg-white border-slate-200 text-slate-800 shadow-slate-500/10"
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              <AlertCircle className={`w-4 h-4 ${toast.type === "critical" ? "text-rose-600" : toast.type === "warning" ? "text-amber-600" : "text-sky-600"}`} />
-              <span>{toast.message}</span>
+    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans antialiased pb-16">
+      
+      {/* ========================================================
+          1. TOP BAR: LOCATION FILTER + IOT BOX + BATTERY CELL
+          ======================================================== */}
+      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/90 shadow-2xs">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          
+          {/* Brand + First Filter: 1 IoT Box in 1 Location */}
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-xl shadow-xs shadow-amber-500/20">
+              🐝
             </div>
-            <button onClick={() => setToast(null)} className="text-slate-600 hover:text-slate-900">
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Main Top Navigation */}
-      <Navbar
-        hub={hub}
-        lastUpdatedSeconds={lastUpdatedSeconds}
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        unreadAlertsCount={alerts.length}
-      />
-
-      {/* Content Container */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-        <AnimatePresence mode="wait">
-          {activeTab === "command" && (
-            <motion.div
-              key="command"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.2 }}
-              className="space-y-6"
-            >
-              {/* Single, Clean Segmented Box Selector */}
-              <BoxSelector
-                boxes={boxes}
-                activeBoxId={activeBoxId}
-                onSelectBox={(id) => {
-                  setActiveBoxId(id);
-                  showToast(`Switched active view to ${boxes[id]?.box_name}`, "info");
-                }}
-              />
-
-              {/* Live Colony Acoustic Mic Streamer & Oscilloscope */}
-              <AudioStreamer
-                soundDb={activeBox.sound_db}
-                boxName={activeBox.box_name}
-                onTriggerSwarmBuzz={() => handleTriggerAnomaly("sound")}
-              />
-
-              {/* The 5 Primary Sensor Cards + SD Card Status in Spacious Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                {/* 1. Brood Temperature */}
-                <SensorCard
-                  title="Brood Temperature"
-                  value={activeBox.temperature_c.toFixed(1)}
-                  unit="°C"
-                  icon={<Thermometer className="w-5 h-5" />}
-                  iconBgColor="bg-amber-100 text-amber-700"
-                  targetRange="Healthy Nest: 31.0°C – 35.5°C"
-                  statusBadge={
-                    activeBox.temperature_c > 36.0
-                      ? { label: "Overheat (>36°C)", variant: "critical" }
-                      : activeBox.temperature_c < 30.0
-                      ? { label: "Chilling (<30°C)", variant: "warning" }
-                      : { label: "Optimal Brood", variant: "normal" }
-                  }
-                  trend="+0.1°C"
-                  subtitle="Core comb incubation stability"
-                />
-
-                {/* 2. Relative Humidity */}
-                <SensorCard
-                  title="Relative Humidity"
-                  value={activeBox.humidity_percent.toFixed(1)}
-                  unit="%"
-                  icon={<Droplets className="w-5 h-5" />}
-                  iconBgColor="bg-sky-100 text-sky-700"
-                  targetRange="Safe Target: 50% – 70%"
-                  statusBadge={
-                    activeBox.humidity_percent > 70.0
-                      ? { label: "Mold Risk (>70%)", variant: "warning" }
-                      : activeBox.humidity_percent < 50.0
-                      ? { label: "Desiccation (<50%)", variant: "warning" }
-                      : { label: "Healthy Comb", variant: "normal" }
-                  }
-                  trend="-0.2%"
-                  subtitle="Comb moisture & egg viability"
-                />
-
-                {/* 3. Hive Weight */}
-                <SensorCard
-                  title="Total Hive Weight"
-                  value={activeBox.weight_kg.toFixed(2)}
-                  unit="kg"
-                  icon={<Scale className="w-5 h-5" />}
-                  iconBgColor="bg-emerald-100 text-emerald-700"
-                  targetRange="HX711 Load Cell Monitoring"
-                  statusBadge={{ label: "Honey Inflow Active", variant: "normal" }}
-                  trend="+0.02 kg"
-                  subtitle="Nectar accumulation & foraging flux"
-                />
-
-                {/* 4. Colony Sound */}
-                <SensorCard
-                  title="Acoustic Colony Sound"
-                  value={activeBox.sound_db}
-                  unit="dB"
-                  icon={<Volume2 className="w-5 h-5" />}
-                  iconBgColor="bg-purple-100 text-purple-700"
-                  targetRange="Normal Colony Hum: 50 – 65 dB"
-                  statusBadge={
-                    activeBox.sound_db >= 75
-                      ? { label: "Swarm Agitation", variant: "critical" }
-                      : { label: "Normal Worker Hum", variant: "normal" }
-                  }
-                  trend="0 dB"
-                  subtitle="Wingbeat acoustic frequency sensor"
-                />
-
-                {/* 5. Tilt Angle */}
-                <SensorCard
-                  title="Hive Tilt Angle"
-                  value={activeBox.tilt_deg.toFixed(1)}
-                  unit="°"
-                  icon={<Compass className="w-5 h-5" />}
-                  iconBgColor="bg-rose-100 text-rose-700"
-                  targetRange="MPU6050 Accelerometer / Gyro"
-                  statusBadge={
-                    activeBox.tilt_deg > 10.0
-                      ? { label: "Knocked Over (>10°)", variant: "critical" }
-                      : { label: "Level & Stable", variant: "normal" }
-                  }
-                  trend="0.0°"
-                  subtitle="Physical foundation security"
-                />
-
-                {/* 6. MicroSD Data Logger */}
-                <SensorCard
-                  title="SD Card Data Logger"
-                  value="UNAVAILABLE"
-                  icon={<HardDrive className="w-5 h-5" />}
-                  iconBgColor="bg-slate-100 text-slate-500"
-                  targetRange="Offline SPI Flash Buffer"
-                  statusBadge={{ label: "Pending Firmware", variant: "neutral" }}
-                  subtitle="Offline packets will sync automatically once MicroPython SPI driver is active."
-                />
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-extrabold text-base sm:text-lg text-slate-900 tracking-tight">
+                  MadhuRaksha
+                </span>
+                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                  Prototype Display
+                </span>
               </div>
+              
+              {/* Filter Tab: One Location -> Master IoT Box */}
+              <div className="flex items-center gap-1.5 text-xs text-slate-600 mt-0.5">
+                <MapPin className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                <span className="font-semibold text-slate-800">Location 1 (Mandya Apiary)</span>
+                <span>&bull;</span>
+                <Cpu className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                <span className="font-mono font-bold text-slate-700">IoT Box #1</span>
+                <span>(3 linked hives)</span>
+              </div>
+            </div>
+          </div>
 
-              {/* 2D Digital Twin Section */}
-              <DigitalTwin box={activeBox} />
+          {/* Battery Percentage Display of the Cell */}
+          <div className="flex items-center gap-3 self-end sm:self-auto">
+            {/* Battery Cell Card */}
+            <div className="flex items-center gap-3 px-3.5 py-1.5 rounded-xl bg-emerald-50/80 border border-emerald-200/90 text-emerald-950">
+              <div className="relative">
+                <BatteryCharging className="w-5 h-5 text-emerald-600 animate-pulse" />
+              </div>
+              <div className="text-left">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-semibold text-emerald-800">Battery Cell</span>
+                  <span className="text-sm font-extrabold font-mono text-emerald-950">
+                    {hub.battery_cell_pct}%
+                  </span>
+                </div>
+                <div className="text-[10px] text-emerald-700 font-medium">
+                  {hub.battery_voltage}V &bull; Li-Ion Solar Cell
+                </div>
+              </div>
+            </div>
 
-              {/* Simulation Test Controls (Kept tidy at bottom) */}
-              <ControlsPanel
-                isRunning={isRunning}
-                onToggleSim={() => {
-                  setIsRunning((prev) => !prev);
-                  showToast(isRunning ? "Simulation paused" : "Simulation resumed", "info");
-                }}
-                onTriggerAnomaly={handleTriggerAnomaly}
-                onExportCSV={handleExportCSV}
-                boxName={activeBox.box_name}
-              />
-            </motion.div>
-          )}
+            {/* Live Ticker */}
+            <div className="text-[11px] text-slate-600 font-mono bg-slate-100 px-2.5 py-1.5 rounded-lg border border-slate-200/80 hidden md:block">
+              {lastUpdated === 0 ? "Tick: now" : `Tick: ${lastUpdated}s ago`}
+            </div>
+          </div>
 
-          {activeTab === "analytics" && (
+        </div>
+      </header>
+
+      {/* Main Content Area */}
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 pt-6 space-y-6">
+
+        {/* Anomaly Alert Notification Banner */}
+        <AnimatePresence>
+          {activeAlert && (
             <motion.div
-              key="analytics"
-              initial={{ opacity: 0, y: 10 }}
+              initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.2 }}
+              className={`p-4 rounded-xl border flex items-center justify-between gap-3 shadow-2xs ${
+                activeAlert.severity === "CRITICAL"
+                  ? "bg-rose-50 border-rose-200 text-rose-900"
+                  : "bg-amber-50 border-amber-200 text-amber-900"
+              }`}
             >
-              <AnalyticsCharts
-                data={historicalData}
-                boxName={activeBox.box_name}
-                onRangeChange={handleRangeChange}
-              />
-            </motion.div>
-          )}
-
-          {activeTab === "map" && (
-            <motion.div
-              key="map"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.2 }}
-            >
-              <FleetMap />
-            </motion.div>
-          )}
-
-          {activeTab === "harvest" && (
-            <motion.div
-              key="harvest"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.2 }}
-            >
-              <HarvestTracker />
-            </motion.div>
-          )}
-
-          {activeTab === "tasks" && (
-            <motion.div
-              key="tasks"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.2 }}
-            >
-              <FieldTasks />
-            </motion.div>
-          )}
-
-          {activeTab === "alerts" && (
-            <motion.div
-              key="alerts"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.2 }}
-            >
-              <AlertsTable
-                alerts={alerts}
-                onClearAlerts={() => {
-                  setAlerts([]);
-                  showToast("Alerts log cleared", "info");
-                }}
-              />
-            </motion.div>
-          )}
-
-          {activeTab === "overview" && (
-            <motion.div
-              key="overview"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.2 }}
-            >
-              <ProjectOverview />
+              <div className="flex items-center gap-2.5">
+                <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
+                <div className="text-xs">
+                  <span className="font-bold">{activeAlert.box_id}:</span> {activeAlert.sensor} anomaly detected ({activeAlert.reading}).
+                </div>
+              </div>
+              <button
+                onClick={() => setActiveAlert(null)}
+                className="px-2.5 py-1 text-xs font-bold rounded-lg bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 flex items-center gap-1 shadow-2xs transition-colors"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                Dismiss
+              </button>
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* ========================================================
+            2. THE 3 BOXES TABS SWITCHER
+            ======================================================== */}
+        <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/90 shadow-2xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+            <div className="flex items-center gap-2">
+              <Layers className="w-4 h-4 text-amber-600" />
+              <h2 className="text-xs font-bold text-slate-600 uppercase tracking-wider">
+                Select Beehive Box
+              </h2>
+            </div>
+            <span className="text-xs text-slate-600">
+              Click a box to inspect its live sensors
+            </span>
+          </div>
+
+          {/* 3 Box Tabs */}
+          <div className="grid grid-cols-3 gap-2.5 p-1.5 bg-slate-100/90 rounded-xl">
+            {boxKeys.map((key, idx) => {
+              const b = boxes[key];
+              const isSelected = activeBoxId === key;
+
+              return (
+                <button
+                  key={key}
+                  onClick={() => {
+                    setActiveBoxId(key);
+                    if (isAudioPlaying && audioStreamerRef.current) {
+                      audioStreamerRef.current.updateLiveSound(b.sound_db);
+                    }
+                  }}
+                  className="relative p-3 rounded-lg text-left transition-all focus:outline-none"
+                >
+                  {isSelected && (
+                    <motion.div
+                      layoutId="activePrototypeBoxPill"
+                      className="absolute inset-0 bg-white rounded-lg shadow-sm border border-slate-200"
+                      transition={{ type: "spring", stiffness: 450, damping: 35 }}
+                    />
+                  )}
+
+                  <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                    <div className="flex items-center gap-2">
+                      <span className={`w-6 h-6 rounded-md flex items-center justify-center text-xs font-bold ${
+                        isSelected ? "bg-amber-500 text-white" : "bg-slate-200 text-slate-600"
+                      }`}>
+                        {idx + 1}
+                      </span>
+                      <span className={`text-sm font-bold ${isSelected ? "text-slate-900" : "text-slate-700"}`}>
+                        {b.box_name}
+                      </span>
+                    </div>
+
+                    <div className="text-right text-xs font-mono font-bold text-slate-600 hidden sm:block">
+                      {b.temperature_c.toFixed(1)}°C &bull; {b.total_hive_weight_kg.toFixed(1)}kg
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Active Box Banner */}
+        <div className="flex items-center justify-between px-2 text-xs text-slate-600">
+          <div>
+            Showing live parameters for: <strong className="text-amber-700 text-sm">{activeBox.box_name}</strong>
+          </div>
+          <span className={`px-2.5 py-0.5 rounded-full font-bold text-[11px] ${
+            activeBox.status === "CRITICAL"
+              ? "bg-rose-100 text-rose-800 border border-rose-200"
+              : "bg-emerald-100 text-emerald-800 border border-emerald-200"
+          }`}>
+            {activeBox.status === "CRITICAL" ? "Alert Detected" : "Normal Hive State"}
+          </span>
+        </div>
+
+        {/* ========================================================
+            3. PARAMETERS DISPLAY GRID (EXACT AGENDA LIST)
+            ======================================================== */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+
+          {/* ------------------------------------------------------
+              PARAMETER 1: COMBINED TEMPERATURE & HUMIDITY SENSOR
+              ------------------------------------------------------ */}
+          <div className="bg-white rounded-2xl p-6 border border-slate-200/90 shadow-2xs flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
+                  Parameter 1 &bull; Climate Sensor
+                </span>
+                <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center text-amber-700">
+                  <Thermometer className="w-5 h-5" />
+                </div>
+              </div>
+
+              <h3 className="text-base font-bold text-slate-900">
+                Temperature &amp; Humidity (Combined Sensor)
+              </h3>
+              <p className="text-xs text-slate-600 mt-0.5">
+                Single digital probe monitoring core brood incubation climate
+              </p>
+            </div>
+
+            {/* Values Side-by-Side */}
+            <div className="grid grid-cols-2 gap-4 my-6 p-4 rounded-xl bg-slate-50 border border-slate-100">
+              {/* Temperature */}
+              <div>
+                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-600 mb-1">
+                  <Thermometer className="w-4 h-4 text-amber-600" />
+                  <span>Brood Temp</span>
+                </div>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-3xl font-extrabold font-mono text-slate-900">
+                    {activeBox.temperature_c.toFixed(1)}
+                  </span>
+                  <span className="text-sm font-bold text-slate-600">°C</span>
+                </div>
+                <div className="text-[11px] text-slate-600 mt-1">
+                  Target: 31.0°C – 35.5°C
+                </div>
+              </div>
+
+              {/* Humidity */}
+              <div className="border-l border-slate-200/80 pl-4">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-600 mb-1">
+                  <Droplets className="w-4 h-4 text-sky-600" />
+                  <span>Relative Humidity</span>
+                </div>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-3xl font-extrabold font-mono text-slate-900">
+                    {activeBox.humidity_percent.toFixed(1)}
+                  </span>
+                  <span className="text-sm font-bold text-slate-600">%</span>
+                </div>
+                <div className="text-[11px] text-slate-600 mt-1">
+                  Safe: 50% – 70%
+                </div>
+              </div>
+            </div>
+
+            {/* Bottom Status */}
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+              <span className="text-slate-600">Sensor Health:</span>
+              <span className="font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
+                Incubation Optimal
+              </span>
+            </div>
+          </div>
+
+
+          {/* ------------------------------------------------------
+              PARAMETER 2: LOAD SENSORS (BROOD & HONEY SEPARATELY)
+              ------------------------------------------------------ */}
+          <div className="bg-white rounded-2xl p-6 border border-slate-200/90 shadow-2xs flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
+                  Parameter 2 &bull; Weight Loads
+                </span>
+                <div className="w-9 h-9 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-700">
+                  <Scale className="w-5 h-5" />
+                </div>
+              </div>
+
+              <h3 className="text-base font-bold text-slate-900">
+                Load Cells (2 Corners Brood + 2 Corners Honey Box)
+              </h3>
+              <p className="text-xs text-slate-600 mt-0.5">
+                Load cells at two corners of each frame section give separate summed weights
+              </p>
+            </div>
+
+            {/* Compartment Load Cards */}
+            <div className="space-y-3 my-4">
+              
+              {/* Honey Box (Top Super) */}
+              <div className="p-3.5 rounded-xl bg-amber-50/70 border border-amber-200/80">
+                <div className="flex items-center justify-between text-xs mb-1">
+                  <span className="font-extrabold text-amber-900">
+                    🍯 Honey Box (Top Chamber)
+                  </span>
+                  <span className="font-bold font-mono text-amber-900 text-sm">
+                    {activeBox.honey_total_kg.toFixed(2)} kg
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-[11px] text-amber-800 bg-white/70 p-2 rounded-lg border border-amber-200/50">
+                  <div>
+                    <span className="text-slate-600 block">Corner 1:</span>
+                    <strong className="font-mono">{activeBox.honey_load_corner1_kg.toFixed(2)} kg</strong>
+                  </div>
+                  <div>
+                    <span className="text-slate-600 block">Corner 2:</span>
+                    <strong className="font-mono">{activeBox.honey_load_corner2_kg.toFixed(2)} kg</strong>
+                  </div>
+                </div>
+              </div>
+
+              {/* Brood Box (Bottom Chamber) */}
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80">
+                <div className="flex items-center justify-between text-xs mb-1">
+                  <span className="font-extrabold text-slate-800">
+                    🐝 Brood Box (Bottom Chamber)
+                  </span>
+                  <span className="font-bold font-mono text-slate-900 text-sm">
+                    {activeBox.brood_total_kg.toFixed(2)} kg
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-700 bg-white p-2 rounded-lg border border-slate-200/60">
+                  <div>
+                    <span className="text-slate-600 block">Corner 1:</span>
+                    <strong className="font-mono">{activeBox.brood_load_corner1_kg.toFixed(2)} kg</strong>
+                  </div>
+                  <div>
+                    <span className="text-slate-600 block">Corner 2:</span>
+                    <strong className="font-mono">{activeBox.brood_load_corner2_kg.toFixed(2)} kg</strong>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+            {/* Total Combined Weight */}
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+              <span className="text-slate-600">Total Combined Hive Weight:</span>
+              <span className="font-extrabold font-mono text-sm text-slate-900">
+                {activeBox.total_hive_weight_kg.toFixed(2)} kg
+              </span>
+            </div>
+          </div>
+
+
+          {/* ------------------------------------------------------
+              PARAMETER 3: GYROSCOPE DISPLAY (MPU6050)
+              ------------------------------------------------------ */}
+          <div className="bg-white rounded-2xl p-6 border border-slate-200/90 shadow-2xs flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
+                  Parameter 3 &bull; Inertial Tilt
+                </span>
+                <div className="w-9 h-9 rounded-xl bg-purple-100 flex items-center justify-center text-purple-700">
+                  <Compass className="w-5 h-5" />
+                </div>
+              </div>
+
+              <h3 className="text-base font-bold text-slate-900">
+                Gyroscope &amp; Accelerometer (MPU6050)
+              </h3>
+              <p className="text-xs text-slate-600 mt-0.5">
+                Physical stability, balance, and knockover detection
+              </p>
+            </div>
+
+            {/* Gyro Readings Card */}
+            <div className="my-5 p-4 rounded-xl bg-slate-50 border border-slate-100">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-xs font-bold text-slate-700">Combined Tilt Angle</span>
+                <div className="flex items-baseline gap-1">
+                  <span className={`text-3xl font-extrabold font-mono ${
+                    activeBox.gyro.tilt_deg > 10.0 ? "text-rose-600" : "text-slate-900"
+                  }`}>
+                    {activeBox.gyro.tilt_deg.toFixed(1)}
+                  </span>
+                  <span className="text-sm font-bold text-slate-600">°</span>
+                </div>
+              </div>
+
+              {/* 3 Axes Details */}
+              <div className="grid grid-cols-3 gap-2 text-center text-xs pt-3 border-t border-slate-200/60">
+                <div>
+                  <span className="text-[11px] text-slate-600 block">Pitch (X)</span>
+                  <span className="font-mono font-bold text-slate-800">
+                    {activeBox.gyro.pitch_x > 0 ? `+${activeBox.gyro.pitch_x}` : activeBox.gyro.pitch_x}°
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[11px] text-slate-600 block">Roll (Y)</span>
+                  <span className="font-mono font-bold text-slate-800">
+                    {activeBox.gyro.roll_y > 0 ? `+${activeBox.gyro.roll_y}` : activeBox.gyro.roll_y}°
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[11px] text-slate-600 block">Yaw (Z)</span>
+                  <span className="font-mono font-bold text-slate-800">
+                    {activeBox.gyro.yaw_z}°
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Stability Status Pill */}
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+              <span className="text-slate-600">Hive Orientation:</span>
+              <span className={`font-bold px-2.5 py-0.5 rounded-full border text-[11px] ${
+                activeBox.gyro.tilt_deg > 10.0
+                  ? "bg-rose-100 text-rose-800 border-rose-300"
+                  : "bg-emerald-50 text-emerald-800 border-emerald-200"
+              }`}>
+                {activeBox.gyro.status}
+              </span>
+            </div>
+          </div>
+
+
+          {/* ------------------------------------------------------
+              PARAMETER 4: MICROPHONE (SOUND SENSOR)
+              ------------------------------------------------------ */}
+          <div className="bg-white rounded-2xl p-6 border border-slate-200/90 shadow-2xs flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
+                  Parameter 4 &bull; Acoustics
+                </span>
+                <div className="w-9 h-9 rounded-xl bg-rose-100 flex items-center justify-center text-rose-700">
+                  <Mic className="w-5 h-5" />
+                </div>
+              </div>
+
+              <h3 className="text-base font-bold text-slate-900">
+                Microphone (Colony Acoustic Sound)
+              </h3>
+              <p className="text-xs text-slate-600 mt-0.5">
+                Internal audio microphone with live buzzing synthesizer
+              </p>
+            </div>
+
+            {/* Sound Decibel & Oscilloscope */}
+            <div className="my-4 space-y-3">
+              <div className="flex items-center justify-between p-3.5 rounded-xl bg-slate-50 border border-slate-100">
+                <div>
+                  <span className="text-xs text-slate-600 font-semibold block">Acoustic Sound Level</span>
+                  <div className="flex items-baseline gap-1 mt-0.5">
+                    <span className="text-3xl font-extrabold font-mono text-slate-900">
+                      {activeBox.sound_db}
+                    </span>
+                    <span className="text-sm font-bold text-slate-600">dB</span>
+                  </div>
+                </div>
+
+                <div className="text-right">
+                  <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full border ${
+                    activeBox.sound_db >= 75
+                      ? "bg-rose-100 text-rose-800 border-rose-300"
+                      : "bg-amber-100 text-amber-800 border-amber-300"
+                  }`}>
+                    {activeBox.sound_db >= 75 ? "Swarming / Loud" : "Normal Colony Hum"}
+                  </span>
+                  <div className="text-[11px] text-slate-600 mt-1 font-mono">
+                    {isAudioPlaying ? `~${audioFreq} Hz Tone` : "Audio stream idle"}
+                  </div>
+                </div>
+              </div>
+
+              {/* Real-time Oscilloscope Canvas */}
+              <div className="h-14 bg-white rounded-xl border border-slate-200 shadow-inner overflow-hidden flex items-center justify-center">
+                <canvas ref={canvasRef} width={400} height={56} className="w-full h-full block" />
+              </div>
+            </div>
+
+            {/* Audio Controls */}
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-3 text-xs">
+              <button
+                onClick={toggleAudio}
+                className={`px-4 py-2 rounded-xl font-bold flex items-center gap-2 transition-all shadow-xs ${
+                  isAudioPlaying
+                    ? "bg-rose-600 hover:bg-rose-700 text-white"
+                    : "bg-amber-500 hover:bg-amber-600 text-white"
+                }`}
+              >
+                {isAudioPlaying ? (
+                  <>
+                    <VolumeX className="w-4 h-4" />
+                    <span>Stop Mic Buzz</span>
+                  </>
+                ) : (
+                  <>
+                    <Volume2 className="w-4 h-4" />
+                    <span>🔊 Listen Live Buzz</span>
+                  </>
+                )}
+              </button>
+
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-slate-600">Vol:</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={audioVolume}
+                  onChange={(e) => {
+                    const v = parseFloat(e.target.value);
+                    setAudioVolume(v);
+                    audioStreamerRef.current?.setVolume(v);
+                  }}
+                  className="w-16 h-1.5 bg-slate-200 rounded appearance-none cursor-pointer accent-amber-600"
+                />
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        {/* ========================================================
+            4. LIVE TEST CONTROLS (QUICK DEMONSTRATION TOOLBAR)
+            ======================================================== */}
+        <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/90 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-xs font-bold text-slate-700">
+            <span>Test Sensor Anomalies on {activeBox.box_name}:</span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Play/Pause */}
+            <button
+              onClick={() => setIsRunning(!isRunning)}
+              className="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-800 flex items-center gap-1.5"
+            >
+              {isRunning ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+              <span>{isRunning ? "Pause Stream" : "Resume Stream"}</span>
+            </button>
+
+            {/* Test Overheat */}
+            <button
+              onClick={() => setPendingAnomaly("overheat")}
+              className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 flex items-center gap-1"
+            >
+              <Flame className="w-3.5 h-3.5 text-rose-600" />
+              <span>Test Overheat (&gt;36°C)</span>
+            </button>
+
+            {/* Test Tilt */}
+            <button
+              onClick={() => setPendingAnomaly("tilt")}
+              className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 flex items-center gap-1"
+            >
+              <Compass className="w-3.5 h-3.5 text-purple-600" />
+              <span>Test Tilt Knockover (&gt;10°)</span>
+            </button>
+
+            {/* Test Sound */}
+            <button
+              onClick={() => setPendingAnomaly("sound")}
+              className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 flex items-center gap-1"
+            >
+              <Volume2 className="w-3.5 h-3.5 text-amber-600" />
+              <span>Test Swarm Buzz</span>
+            </button>
+
+            {/* Reset */}
+            <button
+              onClick={() => {
+                setPendingAnomaly(null);
+                setActiveAlert(null);
+              }}
+              className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 flex items-center gap-1 transition-colors"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Reset</span>
+            </button>
+          </div>
+        </div>
+
       </main>
 
-      {/* Clean Footer */}
-      <footer className="border-t border-slate-200/80 bg-white py-6 mt-16 text-center text-xs text-slate-600">
-        <p className="max-w-xl mx-auto">
-          <strong>MadhuRaksha (मधुरक्षा)</strong> &bull; Smart Beehive IoT Command Studio<br />
-          1 Master IoT Hub multiplexing 3 identical standard beehive boxes (~1m apart) in Karnataka
+      {/* Clean Bottom Footer */}
+      <footer className="max-w-6xl mx-auto px-4 sm:px-6 pt-10 text-center text-xs text-slate-600">
+        <p>
+          <strong>MadhuRaksha (मधुरक्षा)</strong> &bull; Prototype Display Screen for Today&apos;s Demo<br />
+          Location 1 &bull; 1 Master IoT Box &bull; 3 Standard Beehive Boxes
         </p>
       </footer>
+
     </div>
   );
 }
